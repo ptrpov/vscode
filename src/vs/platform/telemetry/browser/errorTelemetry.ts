@@ -9,7 +9,7 @@ import { binarySearch } from 'vs/base/common/arrays';
 import { globals } from 'vs/base/common/platform';
 import { ITelemetryService } from 'vs/platform/telemetry/common/telemetry';
 import { IDisposable, toDisposable, dispose } from 'vs/base/common/lifecycle';
-import Errors = require('vs/base/common/errors');
+import * as Errors from 'vs/base/common/errors';
 import { safeStringify } from 'vs/base/common/objects';
 
 interface ErrorEvent {
@@ -111,7 +111,7 @@ export default class ErrorTelemetry {
 		};
 
 		if (err) {
-			let {name, message, stack} = err;
+			let { name, message, stack } = err;
 			data.error = { name, message };
 			if (stack) {
 				data.stack = Array.isArray(err.stack)
@@ -143,6 +143,19 @@ export default class ErrorTelemetry {
 
 	private _flushBuffer(): void {
 		for (let error of this._buffer) {
+			/* __GDPR__
+			"UnhandledError" : {
+					"filename" : { "classification": "CallstackOrException", "purpose": "PerformanceAndHealth" },
+					"message" : { "classification": "CallstackOrException", "purpose": "PerformanceAndHealth" },
+					"name": { "classification": "CallstackOrException", "purpose": "PerformanceAndHealth" },
+					"stack": { "classification": "CallstackOrException", "purpose": "PerformanceAndHealth" },
+					"id": { "classification": "CallstackOrException", "purpose": "PerformanceAndHealth" },
+					"line": { "classification": "CallstackOrException", "purpose": "PerformanceAndHealth", "isMeasurement": true },
+					"column": { "classification": "CallstackOrException", "purpose": "PerformanceAndHealth", "isMeasurement": true },
+					"count": { "classification": "CallstackOrException", "purpose": "PerformanceAndHealth", "isMeasurement": true }
+				}
+			*/
+			// __GDPR__TODO__ what's the complete set of properties?
 			this._telemetryService.publicLog('UnhandledError', error);
 		}
 		this._buffer.length = 0;

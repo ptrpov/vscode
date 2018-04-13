@@ -16,6 +16,7 @@ import URI from 'vs/base/common/uri';
 
 // --------------------------------------------
 // This is repeated here so it can be exported
+// because TS inlines const enums
 // --------------------------------------------
 export enum Severity {
 	Ignore = 0,
@@ -24,8 +25,16 @@ export enum Severity {
 	Error = 3,
 }
 
+export enum MarkerSeverity {
+	Hint = 1,
+	Info = 2,
+	Warning = 4,
+	Error = 8,
+}
+
 // --------------------------------------------
 // This is repeated here so it can be exported
+// because TS inlines const enums
 // --------------------------------------------
 export class KeyMod {
 	public static readonly CtrlCmd: number = ConstKeyMod.CtrlCmd;
@@ -40,6 +49,7 @@ export class KeyMod {
 
 // --------------------------------------------
 // This is repeated here so it can be exported
+// because TS inlines const enums
 // --------------------------------------------
 /**
  * Virtual Key Codes, the value does not hold any inherent meaning.
@@ -210,6 +220,12 @@ export enum KeyCode {
 	NUMPAD_DECIMAL = 107,
 	NUMPAD_DIVIDE = 108,
 	/**
+	 * Cover all key codes when IME is processing input.
+	 */
+	KEY_IN_COMPOSITION = 109,
+	ABNT_C1 = 110,
+	ABNT_C2 = 111,
+	/**
 	 * Placed last to cover the length of the enum.
 	 * Please do not depend on this value!
 	 */
@@ -229,8 +245,9 @@ export function createMonacoBaseAPI(): typeof monaco {
 		Selection: Selection,
 		SelectionDirection: SelectionDirection,
 		Severity: Severity,
+		MarkerSeverity: MarkerSeverity,
 		Promise: TPromise,
-		Uri: URI,
+		Uri: <any>URI,
 		Token: Token
 	};
 }

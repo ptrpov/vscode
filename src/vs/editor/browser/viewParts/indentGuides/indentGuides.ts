@@ -11,7 +11,8 @@ import { ViewContext } from 'vs/editor/common/view/viewContext';
 import { RenderingContext } from 'vs/editor/common/view/renderingContext';
 import * as viewEvents from 'vs/editor/common/view/viewEvents';
 import { registerThemingParticipant } from 'vs/platform/theme/common/themeService';
-import { editorGuide } from 'vs/editor/common/view/editorColorRegistry';
+import { editorIndentGuides } from 'vs/editor/common/view/editorColorRegistry';
+import { Position } from 'vs/editor/common/core/position';
 
 export class IndentGuidesOverlay extends DynamicViewOverlay {
 
@@ -36,6 +37,7 @@ export class IndentGuidesOverlay extends DynamicViewOverlay {
 		this._context.removeEventHandler(this);
 		this._context = null;
 		this._renderResult = null;
+		super.dispose();
 	}
 
 	// --- begin event handlers
@@ -47,9 +49,13 @@ export class IndentGuidesOverlay extends DynamicViewOverlay {
 		if (e.fontInfo) {
 			this._spaceWidth = this._context.configuration.editor.fontInfo.spaceWidth;
 		}
-		if (e.viewInfo.renderIndentGuides) {
+		if (e.viewInfo) {
 			this._enabled = this._context.configuration.editor.viewInfo.renderIndentGuides;
 		}
+		return true;
+	}
+	public onDecorationsChanged(e: viewEvents.ViewDecorationsChangedEvent): boolean {
+		// true for inline decorations
 		return true;
 	}
 	public onFlushed(e: viewEvents.ViewFlushedEvent): boolean {
@@ -70,6 +76,9 @@ export class IndentGuidesOverlay extends DynamicViewOverlay {
 	public onZonesChanged(e: viewEvents.ViewZonesChangedEvent): boolean {
 		return true;
 	}
+	public onLanguageConfigurationChanged(e: viewEvents.ViewLanguageConfigurationEvent): boolean {
+		return true;
+	}
 
 	// --- end event handlers
 
@@ -84,16 +93,20 @@ export class IndentGuidesOverlay extends DynamicViewOverlay {
 		const tabSize = this._context.model.getTabSize();
 		const tabWidth = tabSize * this._spaceWidth;
 		const lineHeight = this._lineHeight;
+		const indentGuideWidth = tabWidth;
+
+		const indents = this._context.model.getLinesIndentGuides(visibleStartLineNumber, visibleEndLineNumber);
 
 		let output: string[] = [];
 		for (let lineNumber = visibleStartLineNumber; lineNumber <= visibleEndLineNumber; lineNumber++) {
-			let lineIndex = lineNumber - visibleStartLineNumber;
-			let indent = this._context.model.getLineIndentGuide(lineNumber);
+			const lineIndex = lineNumber - visibleStartLineNumber;
+			const indent = indents[lineIndex];
 
 			let result = '';
-			let left = 0;
+			let leftMostVisiblePosition = ctx.visibleRangeForPosition(new Position(lineNumber, 1));
+			let left = leftMostVisiblePosition ? leftMostVisiblePosition.left : 0;
 			for (let i = 0; i < indent; i++) {
-				result += `<div class="cigr" style="left:${left}px;height:${lineHeight}px;"></div>`;
+				result += `<div class="cigr" style="left:${left}px;height:${lineHeight}px;width:${indentGuideWidth}px"></div>`;
 				left += tabWidth;
 			}
 
@@ -108,15 +121,15 @@ export class IndentGuidesOverlay extends DynamicViewOverlay {
 		}
 		let lineIndex = lineNumber - startLineNumber;
 		if (lineIndex < 0 || lineIndex >= this._renderResult.length) {
-			throw new Error('Unexpected render request');
+			return '';
 		}
 		return this._renderResult[lineIndex];
 	}
 }
 
 registerThemingParticipant((theme, collector) => {
-	let editorGuideColor = theme.getColor(editorGuide);
+	let editorGuideColor = theme.getColor(editorIndentGuides);
 	if (editorGuideColor) {
-		collector.addRule(`.monaco-editor.${theme.selector} .lines-content .cigr { background-color: ${editorGuideColor}; }`);
+		collector.addRule(`.monaco-editor .lines-content .cigr { box-shadow: 1px 0 0 0 ${editorGuideColor} inset; }`);
 	}
 });

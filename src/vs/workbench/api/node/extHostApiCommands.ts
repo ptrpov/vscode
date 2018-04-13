@@ -10,25 +10,30 @@ import { IDisposable } from 'vs/base/common/lifecycle';
 import * as vscode from 'vscode';
 import * as typeConverters from 'vs/workbench/api/node/extHostTypeConverters';
 import * as types from 'vs/workbench/api/node/extHostTypes';
-import { ISingleEditOperation } from 'vs/editor/common/editorCommon';
+import { IRawColorInfo } from 'vs/workbench/api/node/extHost.protocol';
+
+import { ISingleEditOperation } from 'vs/editor/common/model';
 import * as modes from 'vs/editor/common/modes';
 import { ICommandHandlerDescription } from 'vs/platform/commands/common/commands';
 import { ExtHostCommands } from 'vs/workbench/api/node/extHostCommands';
-import { IOutline } from 'vs/editor/contrib/quickOpen/common/quickOpen';
-import { IWorkspaceSymbolProvider, IWorkspaceSymbol } from 'vs/workbench/parts/search/common/search';
-import { ICodeLensData } from 'vs/editor/contrib/codelens/common/codelens';
+import { IWorkspaceSymbolProvider } from 'vs/workbench/parts/search/common/search';
+import { Position as EditorPosition, ITextEditorOptions } from 'vs/platform/editor/common/editor';
+import { CustomCodeAction } from 'vs/workbench/api/node/extHostLanguageFeatures';
+import { ExtHostTask } from './extHostTask';
 
 export class ExtHostApiCommands {
 
-	static register(commands: ExtHostCommands) {
-		return new ExtHostApiCommands(commands).registerCommands();
+	static register(commands: ExtHostCommands, workspace: ExtHostTask) {
+		return new ExtHostApiCommands(commands, workspace).registerCommands();
 	}
 
 	private _commands: ExtHostCommands;
+	private _tasks: ExtHostTask;
 	private _disposables: IDisposable[] = [];
 
-	private constructor(commands: ExtHostCommands) {
+	private constructor(commands: ExtHostCommands, task: ExtHostTask) {
 		this._commands = commands;
+		this._tasks = task;
 	}
 
 	registerCommands() {
@@ -40,6 +45,14 @@ export class ExtHostApiCommands {
 		});
 		this._register('vscode.executeDefinitionProvider', this._executeDefinitionProvider, {
 			description: 'Execute all definition provider.',
+			args: [
+				{ name: 'uri', description: 'Uri of a text document', constraint: URI },
+				{ name: 'position', description: 'Position of a symbol', constraint: types.Position }
+			],
+			returns: 'A promise that resolves to an array of Location-instances.'
+		});
+		this._register('vscode.executeTypeDefinitionProvider', this._executeTypeDefinitionProvider, {
+			description: 'Execute all type definition providers.',
 			args: [
 				{ name: 'uri', description: 'Uri of a text document', constraint: URI },
 				{ name: 'position', description: 'Position of a symbol', constraint: types.Position }
@@ -161,12 +174,32 @@ export class ExtHostApiCommands {
 			],
 			returns: 'A promise that resolves to an array of DocumentLink-instances.'
 		});
-
-		this._register('vscode.previewHtml', (uri: URI, position?: vscode.ViewColumn, label?: string) => {
+		this._register('vscode.executeTaskProvider', this._executeTaskProvider, {
+			description: 'Execute task provider',
+			args: [],
+			returns: 'An array of task handles'
+		});
+		this._register('vscode.executeDocumentColorProvider', this._executeDocumentColorProvider, {
+			description: 'Execute document color provider.',
+			args: [
+				{ name: 'uri', description: 'Uri of a text document', constraint: URI },
+			],
+			returns: 'A promise that resolves to an array of ColorInformation objects.'
+		});
+		this._register('vscode.executeColorPresentationProvider', this._executeColorPresentationProvider, {
+			description: 'Execute color presentation provider.',
+			args: [
+				{ name: 'color', description: 'The color to show and insert', constraint: types.Color },
+				{ name: 'context', description: 'Context object with uri and range' }
+			],
+			returns: 'A promise that resolves to an array of ColorPresentation objects.'
+		});
+		this._register('vscode.previewHtml', (uri: URI, position?: vscode.ViewColumn, label?: string, options?: any) => {
 			return this._commands.executeCommand('_workbench.previewHtml',
 				uri,
 				typeof position === 'number' && typeConverters.fromViewColumn(position),
-				label);
+				label,
+				options);
 		}, {
 				description: `
 					Render the html of the resource in an editor view.
@@ -176,51 +209,75 @@ export class ExtHostApiCommands {
 				args: [
 					{ name: 'uri', description: 'Uri of the resource to preview.', constraint: value => value instanceof URI || typeof value === 'string' },
 					{ name: 'column', description: '(optional) Column in which to preview.', constraint: value => typeof value === 'undefined' || (typeof value === 'number' && typeof types.ViewColumn[value] === 'string') },
-					{ name: 'label', description: '(optional) An human readable string that is used as title for the preview.', constraint: v => typeof v === 'string' || typeof v === 'undefined' }
+					{ name: 'label', description: '(optional) An human readable string that is used as title for the preview.', constraint: v => typeof v === 'string' || typeof v === 'undefined' },
+					{ name: 'options', description: '(optional) Options for controlling webview environment.', constraint: v => typeof v === 'object' || typeof v === 'undefined' }
 				]
 			});
 
 		this._register('vscode.openFolder', (uri?: URI, forceNewWindow?: boolean) => {
 			if (!uri) {
-				return this._commands.executeCommand('_files.openFolderPicker', forceNewWindow);
+				return this._commands.executeCommand('_files.pickFolderAndOpen', forceNewWindow);
 			}
 
 			return this._commands.executeCommand('_files.windowOpen', [uri.fsPath], forceNewWindow);
 		}, {
-				description: 'Open a folder in the current window or new window depending on the newWindow argument. Note that opening in the same window will shutdown the current extension host process and start a new one on the given folder unless the newWindow parameter is set to true.',
+				description: 'Open a folder or workspace in the current window or new window depending on the newWindow argument. Note that opening in the same window will shutdown the current extension host process and start a new one on the given folder/workspace unless the newWindow parameter is set to true.',
 				args: [
-					{ name: 'uri', description: '(optional) Uri of the folder to open. If not provided, a native dialog will ask the user for the folder', constraint: value => value === void 0 || value instanceof URI },
-					{ name: 'newWindow', description: '(optional) Wether to open the folder in a new window or the same. Defaults to opening in the same window.', constraint: value => value === void 0 || typeof value === 'boolean' }
+					{ name: 'uri', description: '(optional) Uri of the folder or workspace file to open. If not provided, a native dialog will ask the user for the folder', constraint: value => value === void 0 || value instanceof URI },
+					{ name: 'newWindow', description: '(optional) Whether to open the folder/workspace in a new window or the same. Defaults to opening in the same window.', constraint: value => value === void 0 || typeof value === 'boolean' }
 				]
 			});
 
-		this._register('vscode.startDebug', (configuration?: any) => {
-			return this._commands.executeCommand('_workbench.startDebug', configuration);
-		}, {
-				description: 'Start a debugging session.',
-				args: [
-					{ name: 'configuration', description: '(optional) Name of the debug configuration from \'launch.json\' to use. Or a configuration json object to use.' }
-				]
-			});
-
-		this._register('vscode.diff', (left: URI, right: URI, label: string) => {
-			return this._commands.executeCommand('_workbench.diff', [left, right, label]);
+		this._register('vscode.diff', (left: URI, right: URI, label: string, options?: vscode.TextDocumentShowOptions) => {
+			return this._commands.executeCommand('_workbench.diff', [
+				left, right,
+				label,
+				undefined,
+				typeConverters.toTextEditorOptions(options),
+				options ? typeConverters.fromViewColumn(options.viewColumn) : undefined
+			]);
 		}, {
 				description: 'Opens the provided resources in the diff editor to compare their contents.',
 				args: [
 					{ name: 'left', description: 'Left-hand side resource of the diff editor', constraint: URI },
 					{ name: 'right', description: 'Right-hand side resource of the diff editor', constraint: URI },
-					{ name: 'title', description: '(optional) Human readable title for the diff editor', constraint: v => v === void 0 || typeof v === 'string' }
+					{ name: 'title', description: '(optional) Human readable title for the diff editor', constraint: v => v === void 0 || typeof v === 'string' },
+					{ name: 'options', description: '(optional) Editor options, see vscode.TextDocumentShowOptions' }
 				]
 			});
 
-		this._register('vscode.open', (resource: URI, column: vscode.ViewColumn) => {
-			return this._commands.executeCommand('_workbench.open', [resource, typeConverters.fromViewColumn(column)]);
+		this._register('vscode.open', (resource: URI, columnOrOptions?: vscode.ViewColumn | vscode.TextDocumentShowOptions) => {
+			let options: ITextEditorOptions;
+			let column: EditorPosition;
+
+			if (columnOrOptions) {
+				if (typeof columnOrOptions === 'number') {
+					column = typeConverters.fromViewColumn(columnOrOptions);
+				} else {
+					options = typeConverters.toTextEditorOptions(columnOrOptions);
+					column = typeConverters.fromViewColumn(columnOrOptions.viewColumn);
+				}
+			}
+
+			return this._commands.executeCommand('_workbench.open', [
+				resource,
+				options,
+				column
+			]);
 		}, {
-				description: 'Opens the provided resource in the editor. Can be a text or binary file, or a http(s) url',
+				description: 'Opens the provided resource in the editor. Can be a text or binary file, or a http(s) url. If you need more control over the options for opening a text file, use vscode.window.showTextDocument instead.',
 				args: [
 					{ name: 'resource', description: 'Resource to open', constraint: URI },
-					{ name: 'column', description: '(optional) Column in which to open', constraint: v => v === void 0 || typeof v === 'number' }
+					{ name: 'columnOrOptions', description: '(optional) Either the column in which to open or editor options, see vscode.TextDocumentShowOptions', constraint: v => v === void 0 || typeof v === 'number' || typeof v === 'object' }
+				]
+			});
+
+		this._register('vscode.removeFromRecentlyOpened', (path: string) => {
+			return this._commands.executeCommand('_workbench.removeFromRecentlyOpened', path);
+		}, {
+				description: 'Removes an entry with the given path from the recently opened list.',
+				args: [
+					{ name: 'path', description: 'Path to remove from recently opened.', constraint: value => typeof value === 'string' }
 				]
 			});
 	}
@@ -228,7 +285,7 @@ export class ExtHostApiCommands {
 	// --- command impl
 
 	private _register(id: string, handler: (...args: any[]) => any, description?: ICommandHandlerDescription): void {
-		let disposable = this._commands.registerCommand(id, handler, this, description);
+		let disposable = this._commands.registerCommand(false, id, handler, this, description);
 		this._disposables.push(disposable);
 	}
 
@@ -239,7 +296,7 @@ export class ExtHostApiCommands {
 	 * @return A promise that resolves to an array of symbol information.
 	 */
 	private _executeWorkspaceSymbolProvider(query: string): Thenable<types.SymbolInformation[]> {
-		return this._commands.executeCommand<[IWorkspaceSymbolProvider, IWorkspaceSymbol[]][]>('_executeWorkspaceSymbolProvider', { query }).then(value => {
+		return this._commands.executeCommand<[IWorkspaceSymbolProvider, modes.SymbolInformation[]][]>('_executeWorkspaceSymbolProvider', { query }).then(value => {
 			const result: types.SymbolInformation[] = [];
 			if (Array.isArray(value)) {
 				for (let tuple of value) {
@@ -255,12 +312,17 @@ export class ExtHostApiCommands {
 			resource,
 			position: position && typeConverters.fromPosition(position)
 		};
-		return this._commands.executeCommand<modes.Location[]>('_executeDefinitionProvider', args).then(value => {
-			if (Array.isArray(value)) {
-				return value.map(typeConverters.location.to);
-			}
-			return undefined;
-		});
+		return this._commands.executeCommand<modes.Location[]>('_executeDefinitionProvider', args)
+			.then(tryMapWith(typeConverters.location.to));
+	}
+
+	private _executeTypeDefinitionProvider(resource: URI, position: types.Position): Thenable<types.Location[]> {
+		const args = {
+			resource,
+			position: position && typeConverters.fromPosition(position)
+		};
+		return this._commands.executeCommand<modes.Location[]>('_executeTypeDefinitionProvider', args)
+			.then(tryMapWith(typeConverters.location.to));
 	}
 
 	private _executeImplementationProvider(resource: URI, position: types.Position): Thenable<types.Location[]> {
@@ -268,12 +330,8 @@ export class ExtHostApiCommands {
 			resource,
 			position: position && typeConverters.fromPosition(position)
 		};
-		return this._commands.executeCommand<modes.Location[]>('_executeImplementationProvider', args).then(value => {
-			if (Array.isArray(value)) {
-				return value.map(typeConverters.location.to);
-			}
-			return undefined;
-		});
+		return this._commands.executeCommand<modes.Location[]>('_executeImplementationProvider', args)
+			.then(tryMapWith(typeConverters.location.to));
 	}
 
 	private _executeHoverProvider(resource: URI, position: types.Position): Thenable<types.Hover[]> {
@@ -281,12 +339,8 @@ export class ExtHostApiCommands {
 			resource,
 			position: position && typeConverters.fromPosition(position)
 		};
-		return this._commands.executeCommand<modes.Hover[]>('_executeHoverProvider', args).then(value => {
-			if (Array.isArray(value)) {
-				return value.map(typeConverters.toHover);
-			}
-			return undefined;
-		});
+		return this._commands.executeCommand<modes.Hover[]>('_executeHoverProvider', args)
+			.then(tryMapWith(typeConverters.toHover));
 	}
 
 	private _executeDocumentHighlights(resource: URI, position: types.Position): Thenable<types.DocumentHighlight[]> {
@@ -294,12 +348,8 @@ export class ExtHostApiCommands {
 			resource,
 			position: position && typeConverters.fromPosition(position)
 		};
-		return this._commands.executeCommand<modes.DocumentHighlight[]>('_executeDocumentHighlights', args).then(value => {
-			if (Array.isArray(value)) {
-				return value.map(typeConverters.toDocumentHighlight);
-			}
-			return undefined;
-		});
+		return this._commands.executeCommand<modes.DocumentHighlight[]>('_executeDocumentHighlights', args)
+			.then(tryMapWith(typeConverters.toDocumentHighlight));
 	}
 
 	private _executeReferenceProvider(resource: URI, position: types.Position): Thenable<types.Location[]> {
@@ -307,12 +357,8 @@ export class ExtHostApiCommands {
 			resource,
 			position: position && typeConverters.fromPosition(position)
 		};
-		return this._commands.executeCommand<modes.Location[]>('_executeReferenceProvider', args).then(value => {
-			if (Array.isArray(value)) {
-				return value.map(typeConverters.location.to);
-			}
-			return undefined;
-		});
+		return this._commands.executeCommand<modes.Location[]>('_executeReferenceProvider', args)
+			.then(tryMapWith(typeConverters.location.to));
 	}
 
 	private _executeDocumentRenameProvider(resource: URI, position: types.Position, newName: string): Thenable<types.WorkspaceEdit> {
@@ -326,13 +372,9 @@ export class ExtHostApiCommands {
 				return undefined;
 			}
 			if (value.rejectReason) {
-				return TPromise.wrapError(value.rejectReason);
+				return TPromise.wrapError<types.WorkspaceEdit>(new Error(value.rejectReason));
 			}
-			let workspaceEdit = new types.WorkspaceEdit();
-			for (let edit of value.edits) {
-				workspaceEdit.replace(edit.resource, typeConverters.toRange(edit.range), edit.newText);
-			}
-			return workspaceEdit;
+			return typeConverters.WorkspaceEdit.to(value);
 		});
 	}
 
@@ -365,43 +407,78 @@ export class ExtHostApiCommands {
 		});
 	}
 
+	private _executeDocumentColorProvider(resource: URI): Thenable<types.ColorInformation[]> {
+		const args = {
+			resource
+		};
+		return this._commands.executeCommand<IRawColorInfo[]>('_executeDocumentColorProvider', args).then(result => {
+			if (result) {
+				return result.map(ci => ({ range: typeConverters.toRange(ci.range), color: typeConverters.Color.to(ci.color) }));
+			}
+			return [];
+		});
+	}
+
+	private _executeColorPresentationProvider(color: types.Color, context: { uri: URI, range: types.Range }): Thenable<types.ColorPresentation[]> {
+		const args = {
+			resource: context.uri,
+			color: typeConverters.Color.from(color),
+			range: typeConverters.fromRange(context.range),
+		};
+		return this._commands.executeCommand<modes.IColorPresentation[]>('_executeColorPresentationProvider', args).then(result => {
+			if (result) {
+				return result.map(typeConverters.ColorPresentation.to);
+			}
+			return [];
+		});
+	}
+
 	private _executeDocumentSymbolProvider(resource: URI): Thenable<types.SymbolInformation[]> {
 		const args = {
 			resource
 		};
-		return this._commands.executeCommand<IOutline>('_executeDocumentSymbolProvider', args).then(value => {
+		return this._commands.executeCommand<modes.IOutline>('_executeDocumentSymbolProvider', args).then(value => {
 			if (value && Array.isArray(value.entries)) {
-				return value.entries.map(typeConverters.SymbolInformation.fromOutlineEntry);
+				return value.entries.map(typeConverters.toSymbolInformation);
 			}
 			return undefined;
 		});
 	}
 
-	private _executeCodeActionProvider(resource: URI, range: types.Range): Thenable<vscode.Command[]> {
+	private _executeCodeActionProvider(resource: URI, range: types.Range): Thenable<(vscode.CodeAction | vscode.Command)[]> {
 		const args = {
 			resource,
 			range: typeConverters.fromRange(range)
 		};
-		return this._commands.executeCommand<modes.CodeAction[]>('_executeCodeActionProvider', args).then(value => {
-			if (!Array.isArray(value)) {
-				return undefined;
-			}
-			return value.map(quickFix => this._commands.converter.fromInternal(quickFix.command));
-		});
+		return this._commands.executeCommand<CustomCodeAction[]>('_executeCodeActionProvider', args)
+			.then(tryMapWith(codeAction => {
+				if (codeAction._isSynthetic) {
+					return this._commands.converter.fromInternal(codeAction.command);
+				} else {
+					const ret = new types.CodeAction(
+						codeAction.title,
+						codeAction.kind ? new types.CodeActionKind(codeAction.kind) : undefined
+					);
+					if (codeAction.edit) {
+						ret.edit = typeConverters.WorkspaceEdit.to(codeAction.edit);
+					}
+					if (codeAction.command) {
+						ret.command = this._commands.converter.fromInternal(codeAction.command);
+					}
+					return ret;
+				}
+			}));
 	}
 
 	private _executeCodeLensProvider(resource: URI): Thenable<vscode.CodeLens[]> {
 		const args = { resource };
-		return this._commands.executeCommand<ICodeLensData[]>('_executeCodeLensProvider', args).then(value => {
-			if (Array.isArray(value)) {
-				return value.map(item => {
-					return new types.CodeLens(
-						typeConverters.toRange(item.symbol.range),
-						this._commands.converter.fromInternal(item.symbol.command));
-				});
-			}
-			return undefined;
-		});
+		return this._commands.executeCommand<modes.ICodeLensSymbol[]>('_executeCodeLensProvider', args)
+			.then(tryMapWith(item => {
+				return new types.CodeLens(
+					typeConverters.toRange(item.range),
+					this._commands.converter.fromInternal(item.command));
+			}));
+
 	}
 
 	private _executeFormatDocumentProvider(resource: URI, options: vscode.FormattingOptions): Thenable<vscode.TextEdit[]> {
@@ -409,12 +486,8 @@ export class ExtHostApiCommands {
 			resource,
 			options
 		};
-		return this._commands.executeCommand<ISingleEditOperation[]>('_executeFormatDocumentProvider', args).then(value => {
-			if (Array.isArray(value)) {
-				return value.map(edit => new types.TextEdit(typeConverters.toRange(edit.range), edit.text));
-			}
-			return undefined;
-		});
+		return this._commands.executeCommand<ISingleEditOperation[]>('_executeFormatDocumentProvider', args)
+			.then(tryMapWith(edit => new types.TextEdit(typeConverters.toRange(edit.range), edit.text)));
 	}
 
 	private _executeFormatRangeProvider(resource: URI, range: types.Range, options: vscode.FormattingOptions): Thenable<vscode.TextEdit[]> {
@@ -423,12 +496,8 @@ export class ExtHostApiCommands {
 			range: typeConverters.fromRange(range),
 			options
 		};
-		return this._commands.executeCommand<ISingleEditOperation[]>('_executeFormatRangeProvider', args).then(value => {
-			if (Array.isArray(value)) {
-				return value.map(edit => new types.TextEdit(typeConverters.toRange(edit.range), edit.text));
-			}
-			return undefined;
-		});
+		return this._commands.executeCommand<ISingleEditOperation[]>('_executeFormatRangeProvider', args)
+			.then(tryMapWith(edit => new types.TextEdit(typeConverters.toRange(edit.range), edit.text)));
 	}
 
 	private _executeFormatOnTypeProvider(resource: URI, position: types.Position, ch: string, options: vscode.FormattingOptions): Thenable<vscode.TextEdit[]> {
@@ -438,20 +507,25 @@ export class ExtHostApiCommands {
 			ch,
 			options
 		};
-		return this._commands.executeCommand<ISingleEditOperation[]>('_executeFormatOnTypeProvider', args).then(value => {
-			if (Array.isArray(value)) {
-				return value.map(edit => new types.TextEdit(typeConverters.toRange(edit.range), edit.text));
-			}
-			return undefined;
-		});
+		return this._commands.executeCommand<ISingleEditOperation[]>('_executeFormatOnTypeProvider', args)
+			.then(tryMapWith(edit => new types.TextEdit(typeConverters.toRange(edit.range), edit.text)));
 	}
 
 	private _executeDocumentLinkProvider(resource: URI): Thenable<vscode.DocumentLink[]> {
-		return this._commands.executeCommand<modes.ILink[]>('_executeLinkProvider', resource).then(value => {
-			if (Array.isArray(value)) {
-				return value.map(typeConverters.DocumentLink.to);
-			}
-			return undefined;
-		});
+		return this._commands.executeCommand<modes.ILink[]>('_executeLinkProvider', resource)
+			.then(tryMapWith(typeConverters.DocumentLink.to));
 	}
+
+	private _executeTaskProvider(): Thenable<vscode.Task[]> {
+		return this._tasks.executeTaskProvider();
+	}
+}
+
+function tryMapWith<T, R>(f: (x: T) => R) {
+	return (value: T[]) => {
+		if (Array.isArray(value)) {
+			return value.map(f);
+		}
+		return undefined;
+	};
 }

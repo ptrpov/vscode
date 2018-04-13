@@ -6,65 +6,56 @@
 'use strict';
 
 import 'vs/css!./media/scmViewlet';
-import Event, { Emitter } from 'vs/base/common/event';
-import { IDisposable, dispose, empty as EmptyDisposable, toDisposable } from 'vs/base/common/lifecycle';
+import { Event, Emitter } from 'vs/base/common/event';
+import { IDisposable, dispose } from 'vs/base/common/lifecycle';
 import { IContextKeyService } from 'vs/platform/contextkey/common/contextkey';
-import { IMenuService, MenuId } from 'vs/platform/actions/common/actions';
+import { IMenuService, MenuId, IMenu } from 'vs/platform/actions/common/actions';
 import { IAction } from 'vs/base/common/actions';
 import { fillInActions } from 'vs/platform/actions/browser/menuItemActionItem';
-import { ISCMService, ISCMProvider, ISCMResource, ISCMResourceGroup } from 'vs/workbench/services/scm/common/scm';
-import { getSCMResourceURI, getSCMResourceGroupId } from './scmUtil';
+import { ISCMProvider, ISCMResource, ISCMResourceGroup } from 'vs/workbench/services/scm/common/scm';
+import { getSCMResourceContextKey } from './scmUtil';
+import { IContextMenuService } from 'vs/platform/contextview/browser/contextView';
 
 export class SCMMenus implements IDisposable {
 
-	private disposables: IDisposable[] = [];
-
-	private activeProviderId: string | undefined;
-	private titleDisposable: IDisposable = EmptyDisposable;
+	private contextKeyService: IContextKeyService;
+	private titleMenu: IMenu;
 	private titleActions: IAction[] = [];
 	private titleSecondaryActions: IAction[] = [];
 
 	private _onDidChangeTitle = new Emitter<void>();
 	get onDidChangeTitle(): Event<void> { return this._onDidChangeTitle.event; }
 
+	private disposables: IDisposable[] = [];
+
 	constructor(
-		@IContextKeyService private contextKeyService: IContextKeyService,
-		@ISCMService private scmService: ISCMService,
-		@IMenuService private menuService: IMenuService
+		provider: ISCMProvider | undefined,
+		@IContextKeyService contextKeyService: IContextKeyService,
+		@IMenuService private menuService: IMenuService,
+		@IContextMenuService private contextMenuService: IContextMenuService
 	) {
-		this.setActiveProvider(this.scmService.activeProvider);
-		this.scmService.onDidChangeProvider(this.setActiveProvider, this, this.disposables);
+		this.contextKeyService = contextKeyService.createScoped();
+		const scmProviderKey = this.contextKeyService.createKey<string | undefined>('scmProvider', void 0);
+
+		if (provider) {
+			scmProviderKey.set(provider.contextValue);
+		} else {
+			scmProviderKey.set('');
+		}
+
+		this.titleMenu = this.menuService.createMenu(MenuId.SCMTitle, this.contextKeyService);
+		this.disposables.push(this.titleMenu);
+
+		this.titleMenu.onDidChange(this.updateTitleActions, this, this.disposables);
+		this.updateTitleActions();
 	}
 
-	private setActiveProvider(activeProvider: ISCMProvider | undefined): void {
-		if (this.titleDisposable) {
-			this.titleDisposable.dispose();
-			this.titleDisposable = EmptyDisposable;
-		}
-
-		this.activeProviderId = activeProvider ? activeProvider.id : undefined;
-
-		if (!activeProvider) {
-			return;
-		}
-
-		const titleMenu = this.menuService.createMenu(MenuId.SCMTitle, this.contextKeyService);
-		const updateActions = () => {
-			this.titleActions = [];
-			this.titleSecondaryActions = [];
-			fillInActions(titleMenu, null, { primary: this.titleActions, secondary: this.titleSecondaryActions });
-			this._onDidChangeTitle.fire();
-		};
-
-		const listener = titleMenu.onDidChange(updateActions);
-		updateActions();
-
-		this.titleDisposable = toDisposable(() => {
-			listener.dispose();
-			titleMenu.dispose();
-			this.titleActions = [];
-			this.titleSecondaryActions = [];
-		});
+	private updateTitleActions(): void {
+		this.titleActions = [];
+		this.titleSecondaryActions = [];
+		// TODO@joao: second arg used to be null
+		fillInActions(this.titleMenu, { shouldForwardArgs: true }, { primary: this.titleActions, secondary: this.titleSecondaryActions }, this.contextMenuService);
+		this._onDidChangeTitle.fire();
 	}
 
 	getTitleActions(): IAction[] {
@@ -91,21 +82,15 @@ export class SCMMenus implements IDisposable {
 		return this.getActions(MenuId.SCMResourceContext, resource).secondary;
 	}
 
-	private static readonly NoActions = { primary: [], secondary: [] };
-
 	private getActions(menuId: MenuId, resource: ISCMResourceGroup | ISCMResource): { primary: IAction[]; secondary: IAction[]; } {
-		if (!this.scmService.activeProvider) {
-			return SCMMenus.NoActions;
-		}
-
 		const contextKeyService = this.contextKeyService.createScoped();
-		contextKeyService.createKey('scmResourceGroup', getSCMResourceGroupId(resource));
+		contextKeyService.createKey('scmResourceGroup', getSCMResourceContextKey(resource));
 
 		const menu = this.menuService.createMenu(menuId, contextKeyService);
-		const primary = [];
-		const secondary = [];
+		const primary: IAction[] = [];
+		const secondary: IAction[] = [];
 		const result = { primary, secondary };
-		fillInActions(menu, getSCMResourceURI(this.activeProviderId, resource), result, g => g === 'inline');
+		fillInActions(menu, { shouldForwardArgs: true }, result, this.contextMenuService, g => /^inline/.test(g));
 
 		menu.dispose();
 		contextKeyService.dispose();

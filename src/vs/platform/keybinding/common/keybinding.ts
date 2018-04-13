@@ -9,7 +9,7 @@ import { createDecorator } from 'vs/platform/instantiation/common/instantiation'
 import { IContextKeyServiceTarget } from 'vs/platform/contextkey/common/contextkey';
 import { IResolveResult } from 'vs/platform/keybinding/common/keybindingResolver';
 import { ResolvedKeybindingItem } from 'vs/platform/keybinding/common/resolvedKeybindingItem';
-import Event from 'vs/base/common/event';
+import { Event } from 'vs/base/common/event';
 
 export interface IUserFriendlyKeybinding {
 	key: string;
@@ -37,7 +37,7 @@ export interface IKeyboardEvent {
 	readonly code: string;
 }
 
-export let IKeybindingService = createDecorator<IKeybindingService>('keybindingService');
+export const IKeybindingService = createDecorator<IKeybindingService>('keybindingService');
 
 export interface IKeybindingService {
 	_serviceBrand: any;
@@ -50,6 +50,8 @@ export interface IKeybindingService {
 	resolveKeybinding(keybinding: Keybinding): ResolvedKeybinding[];
 
 	resolveKeyboardEvent(keyboardEvent: IKeyboardEvent): ResolvedKeybinding;
+
+	resolveUserBinding(userBinding: string): ResolvedKeybinding[];
 
 	/**
 	 * Resolve and dispatch `keyboardEvent`, but do not invoke the command or change inner state.
@@ -68,7 +70,9 @@ export interface IKeybindingService {
 	 */
 	lookupKeybinding(commandId: string): ResolvedKeybinding;
 
-	getDefaultKeybindings(): string;
+	getDefaultKeybindingsContent(): string;
+
+	getDefaultKeybindings(): ResolvedKeybindingItem[];
 
 	getKeybindings(): ResolvedKeybindingItem[];
 

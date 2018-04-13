@@ -4,24 +4,26 @@
  *--------------------------------------------------------------------------------------------*/
 'use strict';
 
-import nls = require('vs/nls');
+import * as nls from 'vs/nls';
 import { BaseBinaryResourceEditor } from 'vs/workbench/browser/parts/editor/binaryEditor';
 import { BINARY_FILE_EDITOR_ID } from 'vs/workbench/parts/files/common/files';
 import { ITelemetryService } from 'vs/platform/telemetry/common/telemetry';
 import { IThemeService } from 'vs/platform/theme/common/themeService';
+import { IWindowsService } from 'vs/platform/windows/common/windows';
 
 /**
  * An implementation of editor for binary files like images.
  */
 export class BinaryFileEditor extends BaseBinaryResourceEditor {
 
-	public static ID = BINARY_FILE_EDITOR_ID;
+	public static readonly ID = BINARY_FILE_EDITOR_ID;
 
 	constructor(
 		@ITelemetryService telemetryService: ITelemetryService,
-		@IThemeService themeService: IThemeService
+		@IThemeService themeService: IThemeService,
+		@IWindowsService windowsService: IWindowsService
 	) {
-		super(BinaryFileEditor.ID, telemetryService, themeService);
+		super(BinaryFileEditor.ID, telemetryService, themeService, windowsService);
 	}
 
 	public getTitle(): string {

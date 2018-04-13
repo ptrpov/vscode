@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 'use strict';
 
-import _Event, { Emitter, mapEvent } from 'vs/base/common/event';
+import { Event as _Event, Emitter, mapEvent } from 'vs/base/common/event';
 
 export type EventHandler = HTMLElement | HTMLDocument | Window;
 
@@ -30,7 +30,6 @@ export interface IDomEvent {
 	(element: EventHandler, type: 'MSPointerUp', useCapture?: boolean): _Event<MSPointerEvent>;
 	(element: EventHandler, type: 'abort', useCapture?: boolean): _Event<UIEvent>;
 	(element: EventHandler, type: 'activate', useCapture?: boolean): _Event<UIEvent>;
-	(element: EventHandler, type: 'ariarequest', useCapture?: boolean): _Event<AriaRequestEvent>;
 	(element: EventHandler, type: 'beforeactivate', useCapture?: boolean): _Event<UIEvent>;
 	(element: EventHandler, type: 'beforecopy', useCapture?: boolean): _Event<DragEvent>;
 	(element: EventHandler, type: 'beforecut', useCapture?: boolean): _Event<DragEvent>;
@@ -41,7 +40,6 @@ export interface IDomEvent {
 	(element: EventHandler, type: 'canplaythrough', useCapture?: boolean): _Event<Event>;
 	(element: EventHandler, type: 'change', useCapture?: boolean): _Event<Event>;
 	(element: EventHandler, type: 'click', useCapture?: boolean): _Event<MouseEvent>;
-	(element: EventHandler, type: 'command', useCapture?: boolean): _Event<CommandEvent>;
 	(element: EventHandler, type: 'contextmenu', useCapture?: boolean): _Event<PointerEvent>;
 	(element: EventHandler, type: 'copy', useCapture?: boolean): _Event<DragEvent>;
 	(element: EventHandler, type: 'cuechange', useCapture?: boolean): _Event<Event>;
@@ -128,7 +126,12 @@ export const domEvent: IDomEvent = (element: EventHandler, type: string, useCapt
 	return emitter.event;
 };
 
-export function stop<T extends Event>(event: _Event<T>): _Event<T> {
+export interface CancellableEvent {
+	preventDefault();
+	stopPropagation();
+}
+
+export function stop<T extends CancellableEvent>(event: _Event<T>): _Event<T> {
 	return mapEvent(event, e => {
 		e.preventDefault();
 		e.stopPropagation();

@@ -3,13 +3,13 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import stream = require('stream');
+import * as stream from 'stream';
 import { TPromise } from 'vs/base/common/winjs.base';
 import { canceled } from 'vs/base/common/errors';
 
 export abstract class V8Protocol {
 
-	private static TWO_CRLF = '\r\n\r\n';
+	private static readonly TWO_CRLF = '\r\n\r\n';
 
 	private outputStream: stream.Writable;
 	private sequence: number;
@@ -21,7 +21,7 @@ export abstract class V8Protocol {
 		this.sequence = 1;
 		this.contentLength = -1;
 		this.pendingRequests = new Map<number, (e: DebugProtocol.Response) => void>();
-		this.rawData = new Buffer(0);
+		this.rawData = Buffer.allocUnsafe(0);
 	}
 
 	public getId(): string {
@@ -30,7 +30,7 @@ export abstract class V8Protocol {
 
 	protected abstract onServerError(err: Error): void;
 	protected abstract onEvent(event: DebugProtocol.Event): void;
-	protected abstract dispatchRequest(request: DebugProtocol.Request, response: DebugProtocol.Response);
+	protected abstract dispatchRequest(request: DebugProtocol.Request, response: DebugProtocol.Response): void;
 
 	protected connect(readable: stream.Readable, writable: stream.Writable): void {
 
@@ -42,11 +42,11 @@ export abstract class V8Protocol {
 		});
 	}
 
-	protected send(command: string, args: any): TPromise<DebugProtocol.Response> {
-		let errorCallback;
-		return new TPromise((completeDispatch, errorDispatch) => {
+	protected send<R extends DebugProtocol.Response>(command: string, args: any): TPromise<R> {
+		let errorCallback: (error: Error) => void;
+		return new TPromise<R>((completeDispatch, errorDispatch) => {
 			errorCallback = errorDispatch;
-			this.doSend(command, args, (result: DebugProtocol.Response) => {
+			this.doSend(command, args, (result: R) => {
 				if (result.success) {
 					completeDispatch(result);
 				} else {
@@ -149,7 +149,7 @@ export abstract class V8Protocol {
 					break;
 			}
 		} catch (e) {
-			this.onServerError(new Error(e.message || e));
+			this.onServerError(new Error((e.message || e) + '\n' + body));
 		}
 	}
 }

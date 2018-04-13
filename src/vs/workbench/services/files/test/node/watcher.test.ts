@@ -5,16 +5,16 @@
 
 'use strict';
 
-import assert = require('assert');
+import * as assert from 'assert';
 
-import platform = require('vs/base/common/platform');
+import * as platform from 'vs/base/common/platform';
 import { FileChangeType, FileChangesEvent } from 'vs/platform/files/common/files';
 import uri from 'vs/base/common/uri';
 import { IRawFileChange, toFileChangesEvent, normalize } from 'vs/workbench/services/files/node/watcher/common';
-import Event, { Emitter } from 'vs/base/common/event';
+import { Event, Emitter } from 'vs/base/common/event';
 
 class TestFileWatcher {
-	private _onFileChanges: Emitter<FileChangesEvent>;
+	private readonly _onFileChanges: Emitter<FileChangesEvent>;
 
 	constructor() {
 		this._onFileChanges = new Emitter<FileChangesEvent>();
@@ -33,7 +33,7 @@ class TestFileWatcher {
 		// Normalize
 		let normalizedEvents = normalize(events);
 
-		// Emit through broadcast service
+		// Emit through event emitter
 		if (normalizedEvents.length > 0) {
 			this._onFileChanges.fire(toFileChangesEvent(normalizedEvents));
 		}
@@ -44,7 +44,7 @@ enum Path {
 	UNIX,
 	WINDOWS,
 	UNC
-};
+}
 
 suite('Watcher', () => {
 
