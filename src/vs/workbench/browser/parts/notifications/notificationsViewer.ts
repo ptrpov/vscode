@@ -6,7 +6,7 @@
 'use strict';
 
 import { IDelegate, IRenderer } from 'vs/base/browser/ui/list/list';
-import { clearNode, addClass, removeClass, toggleClass, addDisposableListener } from 'vs/base/browser/dom';
+import { clearNode, addClass, removeClass, toggleClass, addDisposableListener, EventType, EventHelper } from 'vs/base/browser/dom';
 import { IOpenerService } from 'vs/platform/opener/common/opener';
 import URI from 'vs/base/common/uri';
 import { onUnexpectedError } from 'vs/base/common/errors';
@@ -320,6 +320,13 @@ export class NotificationTemplateRenderer {
 
 		// Container
 		toggleClass(this.template.container, 'expanded', notification.expanded);
+		this.inputDisposeables.push(addDisposableListener(this.template.container, EventType.MOUSE_UP, e => {
+			if (e.button === 1 /* Middle Button */) {
+				EventHelper.stop(e);
+
+				notification.close();
+			}
+		}));
 
 		// Severity Icon
 		this.renderSeverity(notification);
@@ -435,14 +442,13 @@ export class NotificationTemplateRenderer {
 				button.label = action.label;
 
 				this.inputDisposeables.push(button.onDidClick(e => {
-					e.preventDefault();
-					e.stopPropagation();
+					EventHelper.stop(e, true);
 
 					// Run action
 					this.actionRunner.run(action, notification);
 
 					// Hide notification
-					notification.dispose();
+					notification.close();
 				}));
 
 				this.inputDisposeables.push(attachButtonStyler(button, this.themeService));
@@ -456,7 +462,7 @@ export class NotificationTemplateRenderer {
 
 		// Return early if the item has no progress
 		if (!notification.hasProgress()) {
-			this.template.progress.stop().getContainer().hide();
+			this.template.progress.stop().hide();
 
 			return;
 		}
@@ -464,7 +470,7 @@ export class NotificationTemplateRenderer {
 		// Infinite
 		const state = notification.progress.state;
 		if (state.infinite) {
-			this.template.progress.infinite().getContainer().show();
+			this.template.progress.infinite().show();
 		}
 
 		// Total / Worked
@@ -474,13 +480,13 @@ export class NotificationTemplateRenderer {
 			}
 
 			if (typeof state.worked === 'number') {
-				this.template.progress.worked(state.worked).getContainer().show();
+				this.template.progress.setWorked(state.worked).show();
 			}
 		}
 
 		// Done
 		else {
-			this.template.progress.done().getContainer().hide();
+			this.template.progress.done().hide();
 		}
 	}
 

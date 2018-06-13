@@ -17,7 +17,6 @@ import { QueryType, ISearchQuery } from 'vs/platform/search/common/search';
 import { DiskSearch } from 'vs/workbench/services/search/node/searchService';
 import { IInitData, IEnvironment, IWorkspaceData, MainContext } from 'vs/workbench/api/node/extHost.protocol';
 import * as errors from 'vs/base/common/errors';
-import * as watchdog from 'native-watchdog';
 import * as glob from 'vs/base/common/glob';
 import { ExtensionActivatedByEvent } from 'vs/workbench/api/node/extHostExtensionActivator';
 import { IDisposable, dispose } from 'vs/base/common/lifecycle';
@@ -26,16 +25,16 @@ import { RPCProtocol } from 'vs/workbench/services/extensions/node/rpcProtocol';
 import URI from 'vs/base/common/uri';
 import { ExtHostLogService } from 'vs/workbench/api/node/extHostLogService';
 
-// const nativeExit = process.exit.bind(process);
+const nativeExit = process.exit.bind(process);
 function patchProcess(allowExit: boolean) {
-	process.exit = function (code) {
+	process.exit = function (code?: number) {
 		if (allowExit) {
 			exit(code);
 		} else {
 			const err = new Error('An extension called process.exit() and this was prevented.');
 			console.warn(err.stack);
 		}
-	};
+	} as (code?: number) => never;
 
 	process.crash = function () {
 		const err = new Error('An extension called process.crash() and this was prevented.');
@@ -43,13 +42,19 @@ function patchProcess(allowExit: boolean) {
 	};
 }
 export function exit(code?: number) {
-	//nativeExit(code);
-
 	// TODO@electron
 	// See https://github.com/Microsoft/vscode/issues/32990
 	// calling process.exit() does not exit the process when the process is being debugged
 	// It waits for the debugger to disconnect, but in our version, the debugger does not
 	// receive an event that the process desires to exit such that it can disconnect.
+
+	let watchdog: { exit: (exitCode: number) => void; } = null;
+	try {
+		watchdog = require.__$__nodeRequire('native-watchdog');
+	} catch (err) {
+		nativeExit(code);
+		return;
+	}
 
 	// Do exactly what node.js would have done, minus the wait for the debugger part
 
@@ -81,13 +86,16 @@ export class ExtensionHostMain {
 
 	constructor(protocol: IMessagePassingProtocol, initData: IInitData) {
 		this._environment = initData.environment;
-		this._workspace = initData.workspace;
 
 		const allowExit = !!this._environment.extensionTestsPath; // to support other test frameworks like Jasmin that use process.exit (https://github.com/Microsoft/vscode/issues/37708)
 		patchProcess(allowExit);
 
 		// services
 		const rpcProtocol = new RPCProtocol(protocol);
+		this._workspace = rpcProtocol.transformIncomingURIs(initData.workspace);
+		// ensure URIs are revived
+		initData.extensions.forEach((ext) => (<any>ext).extensionLocation = URI.revive(ext.extensionLocation));
+
 		this._extHostLogService = new ExtHostLogService(initData.windowId, initData.logLevel, initData.logsPath);
 		this.disposables.push(this._extHostLogService);
 		const extHostWorkspace = new ExtHostWorkspace(rpcProtocol, initData.workspace, this._extHostLogService);

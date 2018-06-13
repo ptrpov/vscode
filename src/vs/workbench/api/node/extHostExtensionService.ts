@@ -13,7 +13,7 @@ import { ExtensionDescriptionRegistry } from 'vs/workbench/services/extensions/n
 import { IExtensionDescription } from 'vs/workbench/services/extensions/common/extensions';
 import { ExtHostStorage } from 'vs/workbench/api/node/extHostStorage';
 import { createApiFactory, initializeExtensionApi, checkProposedApiEnabled } from 'vs/workbench/api/node/extHost.api.impl';
-import { MainContext, MainThreadExtensionServiceShape, IWorkspaceData, IEnvironment, IInitData, ExtHostExtensionServiceShape, MainThreadTelemetryShape, IExtHostContext } from './extHost.protocol';
+import { MainContext, MainThreadExtensionServiceShape, IWorkspaceData, IEnvironment, IInitData, ExtHostExtensionServiceShape, MainThreadTelemetryShape, IMainContext } from './extHost.protocol';
 import { IExtensionMemento, ExtensionsActivator, ActivatedExtension, IExtensionAPI, IExtensionContext, EmptyExtension, IExtensionModule, ExtensionActivationTimesBuilder, ExtensionActivationTimes, ExtensionActivationReason, ExtensionActivatedByEvent } from 'vs/workbench/api/node/extHostExtensionActivator';
 import { ExtHostConfiguration } from 'vs/workbench/api/node/extHostConfiguration';
 import { ExtHostWorkspace } from 'vs/workbench/api/node/extHostWorkspace';
@@ -136,7 +136,7 @@ export class ExtHostExtensionService implements ExtHostExtensionServiceShape {
 	 * This class is constructed manually because it is a service, so it doesn't use any ctor injection
 	 */
 	constructor(initData: IInitData,
-		extHostContext: IExtHostContext,
+		extHostContext: IMainContext,
 		extHostWorkspace: ExtHostWorkspace,
 		extHostConfiguration: ExtHostConfiguration,
 		extHostLogService: ExtHostLogService
@@ -208,6 +208,17 @@ export class ExtHostExtensionService implements ExtHostExtensionServiceShape {
 		}
 	}
 
+	public activateByIdWithErrors(extensionId: string, reason: ExtensionActivationReason): TPromise<void> {
+		return this.activateById(extensionId, reason).then(() => {
+			const extension = this._activator.getActivatedExtension(extensionId);
+			if (extension.activationFailed) {
+				// activation failed => bubble up the error as the promise result
+				return TPromise.wrapError(extension.activationFailedError);
+			}
+			return void 0;
+		});
+	}
+
 	public getAllExtensionDescriptions(): IExtensionDescription[] {
 		return this._registry.getAllExtensionDescriptions();
 	}
@@ -232,8 +243,7 @@ export class ExtHostExtensionService implements ExtHostExtensionServiceShape {
 				if (!ext.main) {
 					return undefined;
 				}
-				return realpath(ext.extensionFolderPath).then(value => tree.set(value, ext));
-
+				return realpath(ext.extensionLocation.fsPath).then(value => tree.set(value, ext));
 			});
 			this._extensionPathIndex = TPromise.join(extensions).then(() => tree);
 		}
@@ -348,9 +358,9 @@ export class ExtHostExtensionService implements ExtHostExtensionServiceShape {
 				globalState,
 				workspaceState,
 				subscriptions: [],
-				get extensionPath() { return extensionDescription.extensionFolderPath; },
+				get extensionPath() { return extensionDescription.extensionLocation.fsPath; },
 				storagePath: this._storagePath.value(extensionDescription),
-				asAbsolutePath: (relativePath: string) => { return join(extensionDescription.extensionFolderPath, relativePath); },
+				asAbsolutePath: (relativePath: string) => { return join(extensionDescription.extensionLocation.fsPath, relativePath); },
 				get logger() {
 					checkProposedApiEnabled(extensionDescription);
 					return that._extHostLogService.getExtLogger(extensionDescription.id);
@@ -371,7 +381,7 @@ export class ExtHostExtensionService implements ExtHostExtensionServiceShape {
 		};
 
 		return this._callActivateOptional(logService, extensionId, extensionModule, context, activationTimesBuilder).then((extensionExports) => {
-			return new ActivatedExtension(false, activationTimesBuilder.build(), extensionModule, extensionExports, context.subscriptions);
+			return new ActivatedExtension(false, null, activationTimesBuilder.build(), extensionModule, extensionExports, context.subscriptions);
 		});
 	}
 
@@ -423,8 +433,7 @@ function getTelemetryActivationEvent(extensionDescription: IExtensionDescription
 		"TelemetryActivationEvent" : {
 			"id": { "classification": "PublicNonPersonalData", "purpose": "FeatureInsight" },
 			"name": { "classification": "PublicNonPersonalData", "purpose": "FeatureInsight" },
-			"publisherDisplayName": { "classification": "PublicPersonalData", "purpose": "FeatureInsight" },
-			"galleryPublisherDisplayName": { "classification": "PublicNonPersonalData", "purpose": "FeatureInsight" },
+			"publisherDisplayName": { "classification": "SystemMetaData", "purpose": "FeatureInsight" },
 			"activationEvents": { "classification": "SystemMetaData", "purpose": "FeatureInsight" },
 			"isBuiltin": { "classification": "SystemMetaData", "purpose": "FeatureInsight" }
 		}
@@ -433,7 +442,6 @@ function getTelemetryActivationEvent(extensionDescription: IExtensionDescription
 		id: extensionDescription.id,
 		name: extensionDescription.name,
 		publisherDisplayName: extensionDescription.publisher,
-		galleryPublisherDisplayName: extensionDescription.publisher,
 		activationEvents: extensionDescription.activationEvents ? extensionDescription.activationEvents.join(',') : null,
 		isBuiltin: extensionDescription.isBuiltin
 	};

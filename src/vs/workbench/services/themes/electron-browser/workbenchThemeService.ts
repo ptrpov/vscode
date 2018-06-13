@@ -20,10 +20,7 @@ import { ColorThemeData } from './colorThemeData';
 import { ITheme, Extensions as ThemingExtensions, IThemingRegistry } from 'vs/platform/theme/common/themeService';
 import { editorBackground } from 'vs/platform/theme/common/colorRegistry';
 import { Color } from 'vs/base/common/color';
-
-import { $ } from 'vs/base/browser/builder';
 import { Event, Emitter } from 'vs/base/common/event';
-
 import * as colorThemeSchema from 'vs/workbench/services/themes/common/colorThemeSchema';
 import * as fileIconThemeSchema from 'vs/workbench/services/themes/common/fileIconThemeSchema';
 import { IDisposable } from 'vs/base/common/lifecycle';
@@ -32,6 +29,8 @@ import { ColorThemeStore } from 'vs/workbench/services/themes/electron-browser/c
 import { FileIconThemeStore } from 'vs/workbench/services/themes/electron-browser/fileIconThemeStore';
 import { FileIconThemeData } from 'vs/workbench/services/themes/electron-browser/fileIconThemeData';
 import { IWindowService } from 'vs/platform/windows/common/windows';
+import { removeClasses, addClasses } from 'vs/base/browser/dom';
+import { IEnvironmentService } from 'vs/platform/environment/common/environment';
 
 // implementation
 
@@ -99,7 +98,9 @@ export class WorkbenchThemeService implements IWorkbenchThemeService {
 		@IConfigurationService private configurationService: IConfigurationService,
 		@ITelemetryService private telemetryService: ITelemetryService,
 		@IWindowService private windowService: IWindowService,
-		@IInstantiationService private instantiationService: IInstantiationService) {
+		@IInstantiationService private instantiationService: IInstantiationService,
+		@IEnvironmentService private environmentService: IEnvironmentService
+	) {
 
 		this.container = container;
 		this.colorThemeStore = new ColorThemeStore(extensionService, ColorThemeData.createLoadedEmptyTheme(DEFAULT_THEME_ID, DEFAULT_THEME_SETTING_VALUE));
@@ -308,18 +309,18 @@ export class WorkbenchThemeService implements IWorkbenchThemeService {
 				}
 			}
 		};
-		themingRegistry.getThemingParticipants().forEach(p => p(themeData, ruleCollector));
+		themingRegistry.getThemingParticipants().forEach(p => p(themeData, ruleCollector, this.environmentService));
 		_applyRules(cssRules.join('\n'), colorThemeRulesClassName);
 	}
 
 	private applyTheme(newTheme: ColorThemeData, settingsTarget: ConfigurationTarget, silent = false): TPromise<IColorTheme> {
 		if (this.container) {
 			if (this.currentColorTheme) {
-				$(this.container).removeClass(this.currentColorTheme.id);
+				removeClasses(this.container, this.currentColorTheme.id);
 			} else {
-				$(this.container).removeClass(VS_DARK_THEME, VS_LIGHT_THEME, VS_HC_THEME);
+				removeClasses(this.container, VS_DARK_THEME, VS_LIGHT_THEME, VS_HC_THEME);
 			}
-			$(this.container).addClass(newTheme.id);
+			addClasses(this.container, newTheme.id);
 		}
 		this.currentColorTheme = newTheme;
 		if (!this.themingParticipantChangeListener) {
@@ -362,8 +363,7 @@ export class WorkbenchThemeService implements IWorkbenchThemeService {
 						"id" : { "classification": "PublicNonPersonalData", "purpose": "FeatureInsight" },
 						"name": { "classification": "PublicNonPersonalData", "purpose": "FeatureInsight" },
 						"isBuiltin": { "classification": "SystemMetaData", "purpose": "FeatureInsight", "isMeasurement": true },
-						"publisherDisplayName": { "classification": "PublicPersonalData", "purpose": "FeatureInsight" },
-						"galleryPublisherDisplayName": { "classification": "PublicNonPersonalData", "purpose": "FeatureInsight" },
+						"publisherDisplayName": { "classification": "SystemMetaData", "purpose": "FeatureInsight" },
 						"themeId": { "classification": "PublicNonPersonalData", "purpose": "FeatureInsight" }
 					}
 				*/
@@ -372,7 +372,6 @@ export class WorkbenchThemeService implements IWorkbenchThemeService {
 					name: themeData.extensionName,
 					isBuiltin: themeData.extensionIsBuiltin,
 					publisherDisplayName: themeData.extensionPublisher,
-					galleryPublisherDisplayName: themeData.extensionPublisher,
 					themeId: themeId
 				});
 				this.themeExtensionsActivated.set(key, true);
@@ -417,9 +416,9 @@ export class WorkbenchThemeService implements IWorkbenchThemeService {
 
 		if (this.container) {
 			if (iconThemeData.id) {
-				$(this.container).addClass(fileIconsEnabledClass);
+				addClasses(this.container, fileIconsEnabledClass);
 			} else {
-				$(this.container).removeClass(fileIconsEnabledClass);
+				removeClasses(this.container, fileIconsEnabledClass);
 			}
 		}
 		if (iconThemeData.id) {

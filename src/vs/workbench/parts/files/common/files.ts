@@ -21,11 +21,17 @@ import { IModeService } from 'vs/editor/common/services/modeService';
 import { ITextFileService } from 'vs/workbench/services/textfile/common/textfiles';
 import { IViewlet } from 'vs/workbench/common/viewlet';
 import { InputFocusedContextKey } from 'vs/platform/workbench/common/contextkeys';
+import { Registry } from 'vs/platform/registry/common/platform';
+import { IViewContainersRegistry, Extensions as ViewContainerExtensions, ViewContainer } from 'vs/workbench/common/views';
 
 /**
  * Explorer viewlet id.
  */
 export const VIEWLET_ID = 'workbench.view.explorer';
+/**
+ * Explorer viewlet container.
+ */
+export const VIEW_CONTAINER: ViewContainer = Registry.as<IViewContainersRegistry>(ViewContainerExtensions.ViewContainersRegistry).registerViewContainer(VIEWLET_ID);
 
 export interface IExplorerViewlet extends IViewlet {
 	getExplorerView(): IExplorerView;
@@ -59,9 +65,9 @@ export const FilesExplorerFocusCondition = ContextKeyExpr.and(ContextKeyExpr.has
 export const ExplorerFocusCondition = ContextKeyExpr.and(ContextKeyExpr.has(explorerViewletVisibleId), ContextKeyExpr.has(explorerViewletFocusId), ContextKeyExpr.not(InputFocusedContextKey));
 
 /**
- * File editor input id.
+ * Preferences editor id.
  */
-export const FILE_EDITOR_INPUT_ID = 'workbench.editors.files.fileEditorInput';
+export const PREFERENCES_EDITOR_ID = 'workbench.editor.preferencesEditor';
 
 /**
  * Text file editor id.
@@ -69,9 +75,15 @@ export const FILE_EDITOR_INPUT_ID = 'workbench.editors.files.fileEditorInput';
 export const TEXT_FILE_EDITOR_ID = 'workbench.editors.files.textFileEditor';
 
 /**
+ * File editor input id.
+ */
+export const FILE_EDITOR_INPUT_ID = 'workbench.editors.files.fileEditorInput';
+
+/**
  * Binary file editor id.
  */
 export const BINARY_FILE_EDITOR_ID = 'workbench.editors.files.binaryFileEditor';
+
 
 export interface IFilesConfiguration extends IFilesConfiguration, IWorkbenchEditorConfiguration {
 	explorer: {
@@ -151,7 +163,7 @@ export class FileOnDiskContentProvider implements ITextModelContentProvider {
 			// Make sure to keep contents on disk up to date when it changes
 			if (!this.fileWatcher) {
 				this.fileWatcher = this.fileService.onFileChanges(changes => {
-					if (changes.contains(fileOnDiskResource, FileChangeType.UPDATED)) { //
+					if (changes.contains(fileOnDiskResource, FileChangeType.UPDATED)) {
 						this.resolveEditorModel(resource, false /* do not create if missing */).done(null, onUnexpectedError); // update model when resource changes
 					}
 				});

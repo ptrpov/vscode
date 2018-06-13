@@ -208,7 +208,7 @@ export class Position {
 
 export class Range {
 
-	static isRange(thing: any): thing is Range {
+	static isRange(thing: any): thing is vscode.Range {
 		if (thing instanceof Range) {
 			return true;
 		}
@@ -673,6 +673,10 @@ export class SnippetString {
 	}
 }
 
+export enum DiagnosticTag {
+	Unnecessary = 1,
+}
+
 export enum DiagnosticSeverity {
 	Hint = 3,
 	Information = 2,
@@ -747,6 +751,7 @@ export class Diagnostic {
 	code: string | number;
 	severity: DiagnosticSeverity;
 	relatedInformation: DiagnosticRelatedInformation[];
+	customTags?: DiagnosticTag[];
 
 	constructor(range: Range, message: string, severity: DiagnosticSeverity = DiagnosticSeverity.Error) {
 		this.range = range;
@@ -876,6 +881,28 @@ export class SymbolInformation {
 	}
 }
 
+export class DocumentSymbol {
+	name: string;
+	kind: SymbolKind;
+	fullRange: Range;
+	gotoRange: Range;
+	children: DocumentSymbol[];
+
+	constructor(name: string, kind: SymbolKind, fullRange: Range, gotoRange: Range) {
+		this.name = name;
+		this.kind = kind;
+		this.fullRange = fullRange;
+		this.gotoRange = gotoRange;
+		this.children = [];
+	}
+}
+
+
+export enum CodeActionTrigger {
+	Automatic = 1,
+	Manual = 2,
+}
+
 export class CodeAction {
 	title: string;
 
@@ -903,6 +930,8 @@ export class CodeActionKind {
 	public static readonly RefactorExtract = CodeActionKind.Refactor.append('extract');
 	public static readonly RefactorInline = CodeActionKind.Refactor.append('inline');
 	public static readonly RefactorRewrite = CodeActionKind.Refactor.append('rewrite');
+	public static readonly Source = CodeActionKind.Empty.append('source');
+	public static readonly SourceOrganizeImports = CodeActionKind.Source.append('organizeImports');
 
 	constructor(
 		public readonly value: string
@@ -1460,7 +1489,6 @@ export class Task implements vscode.Task {
 	private __id: string;
 
 	private _definition: vscode.TaskDefinition;
-	private _definitionKey: string;
 	private _scope: vscode.TaskScope.Global | vscode.TaskScope.Workspace | vscode.WorkspaceFolder;
 	private _name: string;
 	private _execution: ProcessExecution | ShellExecution;
@@ -1521,7 +1549,6 @@ export class Task implements vscode.Task {
 		}
 		this.__id = undefined;
 		this._scope = undefined;
-		this._definitionKey = undefined;
 		this._definition = undefined;
 		if (this._execution instanceof ProcessExecution) {
 			this._definition = {
@@ -1545,17 +1572,7 @@ export class Task implements vscode.Task {
 			throw illegalArgument('Kind can\'t be undefined or null');
 		}
 		this.clear();
-		this._definitionKey = undefined;
 		this._definition = value;
-	}
-
-	get definitionKey(): string {
-		if (!this._definitionKey) {
-			const hash = crypto.createHash('md5');
-			hash.update(JSON.stringify(this._definition));
-			this._definitionKey = hash.digest('hex');
-		}
-		return this._definitionKey;
 	}
 
 	get scope(): vscode.TaskScope.Global | vscode.TaskScope.Workspace | vscode.WorkspaceFolder {
@@ -1811,60 +1828,86 @@ export enum LogLevel {
 }
 
 //#region file api
-// todo@remote
+
 export enum FileChangeType {
-	Updated = 0,
-	Added = 1,
-	Deleted = 2
+	Changed = 1,
+	Created = 2,
+	Deleted = 3,
 }
 
-export enum FileType {
-	File = 0,
-	Dir = 1,
-	Symlink = 2
+export class FileSystemError extends Error {
+
+	static FileExists(messageOrUri?: string | URI): FileSystemError {
+		return new FileSystemError(messageOrUri, 'EntryExists', FileSystemError.FileExists);
+	}
+	static FileNotFound(messageOrUri?: string | URI): FileSystemError {
+		return new FileSystemError(messageOrUri, 'EntryNotFound', FileSystemError.FileNotFound);
+	}
+	static FileNotADirectory(messageOrUri?: string | URI): FileSystemError {
+		return new FileSystemError(messageOrUri, 'EntryNotADirectory', FileSystemError.FileNotADirectory);
+	}
+	static FileIsADirectory(messageOrUri?: string | URI): FileSystemError {
+		return new FileSystemError(messageOrUri, 'EntryIsADirectory', FileSystemError.FileIsADirectory);
+	}
+	static NoPermissions(messageOrUri?: string | URI): FileSystemError {
+		return new FileSystemError(messageOrUri, 'NoPermissions', FileSystemError.NoPermissions);
+	}
+	static Unavailable(messageOrUri?: string | URI): FileSystemError {
+		return new FileSystemError(messageOrUri, 'Unavailable', FileSystemError.Unavailable);
+	}
+
+	constructor(uriOrMessage?: string | URI, code?: string, terminator?: Function) {
+		super(URI.isUri(uriOrMessage) ? uriOrMessage.toString(true) : uriOrMessage);
+		this.name = code ? `${code} (FileSystemError)` : `FileSystemError`;
+
+		// workaround when extending builtin objects and when compiling to ES5, see:
+		// https://github.com/Microsoft/TypeScript-wiki/blob/master/Breaking-Changes.md#extending-built-ins-like-error-array-and-map-may-no-longer-work
+		if (typeof (<any>Object).setPrototypeOf === 'function') {
+			(<any>Object).setPrototypeOf(this, FileSystemError.prototype);
+		}
+
+		if (typeof Error.captureStackTrace === 'function' && typeof terminator === 'function') {
+			// nice stack traces
+			Error.captureStackTrace(this, terminator);
+		}
+	}
 }
 
 //#endregion
 
 //#region folding api
 
-export class FoldingRangeList {
-
-	ranges: FoldingRange[];
-
-	constructor(ranges: FoldingRange[]) {
-		this.ranges = ranges;
-	}
-}
-
 export class FoldingRange {
 
-	startLine: number;
+	start: number;
 
-	endLine: number;
+	end: number;
 
-	type?: FoldingRangeType | string;
+	kind?: FoldingRangeKind;
 
-	constructor(startLine: number, endLine: number, type?: FoldingRangeType | string) {
-		this.startLine = startLine;
-		this.endLine = endLine;
-		this.type = type;
+	constructor(start: number, end: number, kind?: FoldingRangeKind) {
+		this.start = start;
+		this.end = end;
+		this.kind = kind;
 	}
 }
 
-export enum FoldingRangeType {
-	/**
-	 * Folding range for a comment
-	 */
-	Comment = 'comment',
-	/**
-	 * Folding range for a imports or includes
-	 */
-	Imports = 'imports',
-	/**
-	 * Folding range for a region (e.g. `#region`)
-	 */
-	Region = 'region'
+export enum FoldingRangeKind {
+	Comment = 1,
+	Imports = 2,
+	Region = 3
 }
 
 //#endregion
+
+
+export enum CommentThreadCollapsibleState {
+	/**
+	 * Determines an item is collapsed
+	 */
+	Collapsed = 0,
+	/**
+	 * Determines an item is expanded
+	 */
+	Expanded = 1
+}
